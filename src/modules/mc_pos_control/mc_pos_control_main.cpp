@@ -159,8 +159,9 @@ private:
 		(ParamInt<px4::params::MPC_POS_MODE>) MPC_POS_MODE,
 		(ParamInt<px4::params::MPC_AUTO_MODE>) MPC_AUTO_MODE,
 		(ParamInt<px4::params::MPC_ALT_MODE>) MPC_ALT_MODE,
+		(ParamFloat<px4::params::MPC_IDLE_TKO>) MPC_IDLE_TKO, /**< time constant for smooth takeoff ramp */
+		(ParamInt<px4::params::COM_OBS_AVOID>) COM_OBS_AVOID, /**< enable obstacle avoidance */
 		(ParamFloat<px4::params::MPC_SPOOLUP_TIME>) MPC_SPOOLUP_TIME, /**< time to let motors spool up after arming */
-		(ParamInt<px4::params::MPC_OBS_AVOID>) MPC_OBS_AVOID, /**< enable obstacle avoidance */
 		(ParamFloat<px4::params::MPC_TILTMAX_LND>) MPC_TILTMAX_LND /**< maximum tilt for landing and smooth takeoff */
 	);
 
@@ -1145,7 +1146,7 @@ void
 MulticopterPositionControl::update_avoidance_waypoint_desired(PositionControlStates &states,
 		vehicle_local_position_setpoint_s &setpoint)
 {
-	if (MPC_OBS_AVOID.get()) {
+	if (COM_OBS_AVOID.get()) {
 		_traj_wp_avoidance_desired = _flight_tasks.getAvoidanceWaypoint();
 		_traj_wp_avoidance_desired.timestamp = hrt_absolute_time();
 		_traj_wp_avoidance_desired.type = vehicle_trajectory_waypoint_s::MAV_TRAJECTORY_REPRESENTATION_WAYPOINTS;
@@ -1197,22 +1198,12 @@ MulticopterPositionControl::reset_setpoint_to_nan(vehicle_local_position_setpoin
 bool
 MulticopterPositionControl::use_obstacle_avoidance()
 {
-	if (MPC_OBS_AVOID.get()) {
-		const bool avoidance_data_timeout = hrt_elapsed_time((hrt_abstime *)&_traj_wp_avoidance.timestamp) > TRAJECTORY_STREAM_TIMEOUT_US;
-		const bool avoidance_point_valid = _traj_wp_avoidance.waypoints[vehicle_trajectory_waypoint_s::POINT_0].point_valid == true;
-		const bool in_mission = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
-		const bool in_rtl = _vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_RTL;
-
-		// switch to hold mode to stop when we loose external avoidance data during a mission
-		if (avoidance_data_timeout && in_mission) {
-			send_vehicle_cmd_do(vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER);
-		}
-
-		if ((in_mission || in_rtl) && !avoidance_data_timeout && avoidance_point_valid) {
-			return true;
-		}
-	}
-	return false;
+	/* check that external obstacle avoidance is sending data and that the first point is valid */
+	return (COM_OBS_AVOID.get()
+		&& (hrt_elapsed_time((hrt_abstime *)&_traj_wp_avoidance.timestamp) < TRAJECTORY_STREAM_TIMEOUT_US)
+		&& (_traj_wp_avoidance.waypoints[vehicle_trajectory_waypoint_s::POINT_0].point_valid == true)
+		&& ((_vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION) ||
+		    (_vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_RTL)));
 }
 
 void
